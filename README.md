@@ -38,30 +38,36 @@ This repository contains my hands-on coursework, notes, and project artifacts fo
 18. End-to-End Project: AI-Powered Software Lifecycle Automation System
 
 ## Repository layout
-This workspace is organized by study date and module work.
+This workspace is organized by class/session folders and supporting files.
 
 ```text
-GenAI/
-├── 29_Mar_2026/                # Early module notebooks and requirements
-├── 05_Apr_26/                  # NLP feature engineering assignment + notebook
-├── 11_Apr_2026/                # Newer session workspace
+Full-stack-GenAI/
+├── C1_ Mar_22_2026/
+├── C2_Mar_28_2026/
+├── C3_Mar_29_2026/
+├── C4_Apr_04_2026/
+│   └── Assignment/
+├── C5_Apr_05_2026/
+├── C6_Apr_11_2026/
+├── C6_Apr_12_2006/
 ├── Full-Stack GenAI Bootcamp v1.0.pdf
-├── sum.py
+├── requirements.txt
 └── README.md
 ```
 
 ## Working with this repository
-1. Open the folder for the specific session/module.
-2. Create a virtual environment (if not already created).
-3. Install dependencies from that folder’s `requirements.txt`.
-4. Run notebooks or scripts for that module.
+1. Open the repository root.
+2. Create a virtual environment with `uv`.
+3. Activate the environment.
+4. Install dependencies from the repository `requirements.txt`.
+5. Run notebooks or scripts from the session folder you want to study.
 
 Example:
 
 ```bash
-python -m venv env
-source env/bin/activate
-pip install -r requirements.txt
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
 ## Notes
