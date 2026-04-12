@@ -1,0 +1,16 @@
+# to zoom in VScode : 'ctrl' + '+'
+# python : learn python
+
+# to install python --> UV\
+
+# winget install uv
+
+# uv python install 3.12
+
+# uv python install 3.6
+
+# windows
+# .venv\Scripts\activate
+
+# mac/linux
+# source .venv/bin/activate
