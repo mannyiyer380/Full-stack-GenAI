@@ -1,0 +1,10 @@
+# Assignment - multimodal app/notebook extra deps (on top of repo requirements.txt)
+streamlit
+gtts
+opencv-python-headless
+langchain-groq
+langchain-google-genai
+google-genai
+groq
+python-dotenv
+pillow
