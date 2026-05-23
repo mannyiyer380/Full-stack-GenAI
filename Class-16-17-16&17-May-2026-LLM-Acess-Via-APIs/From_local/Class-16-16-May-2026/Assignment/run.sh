@@ -3,10 +3,21 @@
 # Usage: ./run.sh   (from the Assignment folder)
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PY="$HERE/../../env/bin/python"
 
-if [ ! -x "$PY" ]; then
-  echo "Project venv python not found at: $PY" >&2
+# Walk up from this script to find the repo-root venv at <repo>/env/bin/python
+PY=""
+DIR="$HERE"
+while [ "$DIR" != "/" ]; do
+  if [ -x "$DIR/env/bin/python" ]; then
+    PY="$DIR/env/bin/python"
+    break
+  fi
+  DIR="$(dirname "$DIR")"
+done
+
+if [ -z "$PY" ]; then
+  echo "Project venv python not found in any parent of: $HERE" >&2
+  echo "Expected at <repo-root>/env/bin/python" >&2
   exit 1
 fi
 
