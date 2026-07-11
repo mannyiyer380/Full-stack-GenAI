@@ -1,0 +1,25 @@
+# Trained models / adapters / training logs (push these to Hugging Face Hub instead)
+outputs/
+*.safetensors
+*.bin
+*.gguf
+checkpoint-*/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+~$*
+Thumbs.db
+.vscode/
+.idea/
+
+# Hugging Face / model caches
+.cache/
+hf_cache/
