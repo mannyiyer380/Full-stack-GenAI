@@ -1,5 +1,0 @@
-| 0                       |
-|:------------------------|
-| High risk: 12 clauses   |
-| Medium risk: 21 clauses |
-| Low risk: 45 clauses    |
