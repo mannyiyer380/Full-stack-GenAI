@@ -30,3 +30,9 @@ beautifulsoup4
 docx2txt 
 jq 
 unstructured
+langchain-docling
+tabulate
+langchain_chroma
+pinecone
+langchain_pinecone
+langchain_qdrant
