@@ -34,5 +34,5 @@ langchain-docling
 tabulate
 langchain_chroma
 pinecone
-langchain_pinecone
+langchain_pinecone==0.2.13
 langchain_qdrant
