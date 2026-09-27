@@ -38,3 +38,4 @@ langchain_pinecone==0.2.13
 langchain_qdrant
 langgraph==1.2.9
 langchain-tavily==0.2.18
+langgraph-swarm==0.1.0

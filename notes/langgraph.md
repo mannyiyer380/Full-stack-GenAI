@@ -14,6 +14,7 @@
 > 8. `Class-45-12-sep-2026-memory_managnment_extended_human_in_loop/memory_managment.ipynb`
 > 9. `Class-46-13-sep-2026-human_in_loop/Human-in-Loop.ipynb`
 > 10. `Class-47-19-sep-sub-graphs-different-workflow-orchestrator/subgraph.ipynb`
+> 11. `Class-49-50-26th-27thSep-2026-complete-Multiagentic-flow/multiagentic-flow.ipynb`
 
 ---
 
@@ -41,7 +42,8 @@
 20. [Persistent memory with SQLite](#20-persistent-memory-with-sqlite)
 21. [Human-in-the-Loop (HITL)](#21-human-in-the-loop-hitl)
 22. [Subgraphs](#22-subgraphs)
-23. [Quick-reference cheat sheet](#23-quick-reference-cheat-sheet)
+23. [Multi-Agent Patterns](#23-multi-agent-patterns)
+24. [Quick-reference cheat sheet](#24-quick-reference-cheat-sheet)
 
 ---
 
@@ -2326,7 +2328,394 @@ result = research_graph.invoke({"topics": [...], "research_results": []})
 
 ---
 
-## 23. Quick-reference cheat sheet
+## 23. Multi-Agent Patterns
+
+*(Class 49–50 — `multiagentic-flow.ipynb`)*
+
+Everything up to Section 22 builds single graphs where one designer wires every node/edge by hand.
+This class collects **eight independent multi-agent patterns** — different ways to let multiple LLM
+"agents" or specialized LLM nodes cooperate, each with a different control style. The patterns are
+independent (each builds and compiles its own graph), so you can study/run them one at a time.
+
+### 23.0 A crucial distinction: Role ≠ Agent
+
+A node named `technical_agent` is not automatically "agentic." Something only deserves to be called
+an agent when it **observes state, dynamically chooses an action (e.g. which tool to call), and
+decides when to stop** — a real decision loop, not just a differently-prompted LLM call.
+
+```
+Fixed shape (a workflow):        Agentic shape (a real agent):
+LLM Router                        LLM
+  ↓                                 ↓
+Fixed specialist node             observes state, picks an action
+  ↓                                 ↓
+LLM response                     ├── call tool A
+                                  ├── call tool B
+                                  └── finish
+                                     ↺ (loops until it decides to stop)
+```
+
+Several patterns below (Router, plain Supervisor/Handoff workers) are really *LLM workflow nodes*
+with agent-sounding names — they become true agents once given their own tools via `create_agent`
+(as in Subagents and Swarm).
+
+### 23.1 Pattern 1 — Router
+
+**Control style:** a router LLM call picks exactly one specialist; only that specialist runs.
+
+```text
+User → Router → One Specialist → END
+```
+
+```python
+class RouterDecision(BaseModel):
+    route: Literal["technical", "billing", "general"]
+
+router_model = model.with_structured_output(RouterDecision)
+
+class RouterState(TypedDict):
+    query: str
+    route: str
+    response: str
+
+def router_node(state: RouterState):
+    decision = router_model.invoke(f"Route this query...\n{state['query']}")
+    return {"route": decision.route}
+
+def route_to_specialist(state: RouterState):
+    return state["route"]          # the conditional-edge function just replays the decision
+
+builder = StateGraph(RouterState)
+builder.add_node("router", router_node)
+builder.add_node("technical", technical_agent)
+builder.add_node("billing", billing_agent)
+builder.add_node("general", general_agent)
+builder.add_edge(START, "router")
+builder.add_conditional_edges("router", route_to_specialist,
+    {"technical": "technical", "billing": "billing", "general": "general"})
+builder.add_edge("technical", END)
+builder.add_edge("billing", END)
+builder.add_edge("general", END)
+```
+
+2 model calls total: the routing decision, then one specialist reply. This is the same
+"structured decision + `add_conditional_edges`" shape as Section 6's supervisor/router — routing is
+the single most common LLM-driven control-flow primitive in this whole course.
+
+### 23.2 Pattern 2 — Subagents / Agent-as-Tool
+
+**Control style:** a main coordinator agent (built with `create_agent`, LangChain's tool-calling
+agent helper) keeps control the whole time and calls other agents *as tools*.
+
+```text
+User → Main Agent → Specialist Tools → Main Agent → Final Answer
+```
+
+```python
+from langchain.agents import create_agent
+
+research_subagent = create_agent(model=model, tools=[], system_prompt="You are a research specialist...")
+math_subagent = create_agent(model=model, tools=[], system_prompt="You are a math specialist...")
+
+def get_last_message_content(result):
+    return result["messages"][-1].content
+
+@tool
+def ask_research_agent(task: str) -> str:
+    """Delegate a research task to the research specialist."""
+    result = research_subagent.invoke({"messages": [{"role": "user", "content": task}]})
+    return get_last_message_content(result)
+
+main_delegation_agent = create_agent(
+    model=model,
+    tools=[ask_research_agent, ask_math_agent, ask_writing_agent],
+    system_prompt="You are the main coordinator. Delegate work to the appropriate specialist tools...",
+    name="main_coordinator",
+)
+```
+
+The **coordinator** is clearly agentic (its internal ReAct loop decides which/how many subagent
+tools to call, and in what order). The subagents themselves have *no tools*, so — per Section 23.0 —
+they're really specialized LLM workers wrapped in agent objects, not fully autonomous agents yet.
+Model-call count is variable, driven entirely by the coordinator's own tool-calling decisions.
+
+### 23.3 Pattern 3 — Supervisor
+
+**Control style:** one central supervisor node repeatedly re-decides the next worker after seeing
+accumulated results, looping until it chooses `FINISH`.
+
+```text
+Supervisor → Worker → Supervisor → Another Worker → ... → Finish
+```
+
+```python
+class SupervisorDecision(BaseModel):
+    next_agent: Literal["research_agent", "math_agent", "writer_agent", "FINISH"]
+    instruction: str
+
+class SupervisorState(TypedDict):
+    task: str
+    next_agent: str
+    instruction: str
+    worker_outputs: Annotated[list[str], operator.add]   # reducer: workers APPEND, never overwrite
+    final_answer: str
+    supervisor_turns: int
+
+def supervisor(state: SupervisorState):
+    supervisor_turns = state.get("supervisor_turns", 0) + 1
+    completed_work = "\n\n".join(state.get("worker_outputs", []))
+
+    if supervisor_turns >= 6 and completed_work:      # safety valve against infinite delegation
+        return {"next_agent": "FINISH", "instruction": "Maximum turns reached...", "supervisor_turns": supervisor_turns}
+
+    decision = supervisor_router.invoke(f"""
+Choose the next worker given the task and work completed so far...
+{completed_work or "No worker has completed any work yet."}
+""")
+    return {"next_agent": decision.next_agent, "instruction": decision.instruction, "supervisor_turns": supervisor_turns}
+```
+
+Graph shape: `START → supervisor → (conditional) {research_agent|math_agent|writer_agent|finish}`,
+with every worker edging **back to `supervisor`** — a loop, not a straight line. Two independent
+safety nets are stacked: a manual `supervisor_turns` counter *and* LangGraph's own `recursion_limit`
+passed at invoke time (`graph.invoke(state, config={"recursion_limit": 20})`).
+
+**Supervisor is the "central controller" archetype:** the supervisor is agentic (observe → decide →
+route → observe again); the workers are specialized LLM calls, not autonomous agents, unless they're
+also given their own tools.
+
+### 23.4 Pattern 4 — Handoff
+
+**Control style:** a triage node makes one decision and **transfers control outright** using
+`Command(goto=...)`, instead of going through a conditional-edge lookup table.
+
+```text
+User → Triage ─┬→ Billing → END
+               └→ Technical → END
+```
+
+```python
+class HandoffState(MessagesState):
+    active_agent: str
+
+def triage_handoff_agent(state: HandoffState) -> Command[Literal["billing_agent", "technical_agent"]]:
+    latest_user_message = state["messages"][-1].content
+    decision = handoff_router_model.invoke(f"Choose which specialist should handle...\n{latest_user_message}")
+
+    return Command(
+        goto=decision.target,                          # <-- picks the next node directly
+        update={
+            "active_agent": decision.target,
+            "messages": [AIMessage(content="Handoff reason: " + decision.reason)],
+        },
+    )
+```
+
+`Command` fuses "decide" and "route" into a single return value — the node both updates state
+*and* tells the graph engine exactly which node runs next, so no separate `add_conditional_edges`
+routing table is needed for the triage step. Compare with Router (Pattern 1): Router uses a
+conditional-edge lookup table computed *after* the decision node runs; Handoff embeds the routing
+decision directly inside the node's own return value.
+
+### 23.5 Pattern 5 — Swarm
+
+**Control style:** fully decentralized — every agent carries its own "handoff tool" and decides
+*for itself*, at runtime, whether to transfer control to the other agent. No permanent supervisor.
+
+```text
+Math Agent ⇄ Writer Agent
+```
+
+```python
+from langgraph_swarm import create_handoff_tool, create_swarm
+
+math_agent = create_agent(
+    model=model,
+    tools=[create_handoff_tool(agent_name="writer_agent", description="Transfer when polished writing is needed.")],
+    system_prompt="You are a math specialist... Transfer to writer_agent when...",
+    name="math_agent",
+)
+writer_agent = create_agent(
+    model=model,
+    tools=[create_handoff_tool(agent_name="math_agent", description="Transfer when calculations are needed.")],
+    system_prompt="You are a professional writer... Transfer to math_agent when...",
+    name="writer_agent",
+)
+
+workflow = create_swarm([math_agent, writer_agent], default_active_agent="math_agent")
+swarm_graph = workflow.compile(checkpointer=InMemorySaver())   # checkpointer required: tracks "active agent" per thread
+
+result = swarm_graph.invoke(
+    {"messages": [{"role": "user", "content": "Calculate 125 * 32 and present it professionally."}]},
+    config={"configurable": {"thread_id": "swarm_thread_1"}},
+)
+```
+
+**Supervisor vs. Swarm, the key contrast:** Supervisor = one central LLM decides every step for
+everyone; Swarm = agents directly hand off to each other, with control genuinely distributed. Both
+agents here have real tools (their handoff tools) and genuinely decide whether to use them — this is
+the strongest "true multi-agent" example in the notebook, per the Section 23.0 test.
+
+### 23.6 Pattern 6 — Hierarchical Supervisor
+
+**Control style:** a two-level "graph of graphs." A top supervisor picks one **team subgraph**; that
+team runs its own fixed internal pipeline and returns a combined report.
+
+```text
+Top Supervisor ─┬→ Research Team Subgraph → END
+                └→ Business Team Subgraph → END
+```
+
+```python
+class TeamState(TypedDict):
+    task: str
+    team_output: str
+
+def research_team_node(state: TeamState):
+    research = model.invoke(f"Research/explain: {state['task']}")
+    writer = model.invoke(f"Convert this research into a concise report:\n{research.content}")
+    return {"team_output": writer.content}
+
+research_team_builder = StateGraph(TeamState)
+research_team_builder.add_node("research_team", research_team_node)
+research_team_builder.add_edge(START, "research_team")
+research_team_builder.add_edge("research_team", END)
+research_team_graph = research_team_builder.compile()      # a complete, independently-runnable graph
+
+class HierarchicalState(TypedDict):
+    task: str
+    selected_team: str
+    final_answer: str
+
+def call_research_team(state: HierarchicalState):
+    result = research_team_graph.invoke({"task": state["task"], "team_output": ""})   # sub-invocation
+    return {"final_answer": result["team_output"]}
+
+builder = StateGraph(HierarchicalState)
+builder.add_node("top_supervisor", top_supervisor)
+builder.add_node("research_team", call_research_team)
+builder.add_node("business_team", call_business_team)
+builder.add_edge(START, "top_supervisor")
+builder.add_conditional_edges("top_supervisor", hierarchical_route,
+    {"research_team": "research_team", "business_team": "business_team"})
+builder.add_edge("research_team", END)
+builder.add_edge("business_team", END)
+```
+
+This is a lighter-weight cousin of Section 20's subgraph **Pattern A** (shared-state, `add_node`
+composition) — except here the compiled team graph is invoked *manually inside a wrapper node*
+(`call_research_team`) rather than registered directly as a node, because the team's own `TeamState`
+schema differs from the parent's `HierarchicalState`. Expected model calls: 3 (one team-selection
+call, plus two calls inside whichever team gets picked).
+
+### 23.7 Pattern 7 — Parallel Collaboration with `Send`
+
+**Control style:** a coordinator LLM plans a *variable-length* list of subtasks; `Send` spawns one
+parallel worker execution per subtask; a reducer merges all outputs; an aggregator combines them.
+
+```text
+Coordinator → Dynamic Workers (N, in parallel) → Reducer merge → Aggregator → END
+```
+
+```python
+class AgentTask(BaseModel):
+    role: Literal["research", "security", "business"]
+    task: str
+
+class AgentPlan(BaseModel):
+    tasks: list[AgentTask]                 # the LLM decides how MANY tasks, and which roles
+
+class CollaborationState(TypedDict):
+    user_task: str
+    tasks: list[AgentTask]
+    outputs: Annotated[list[str], operator.add]      # merges N parallel workers' outputs
+    final_answer: str
+
+def collaboration_coordinator(state: CollaborationState):
+    plan = multi_agent_planner.invoke(f"Break this task into useful specialist tasks...\n{state['user_task']}")
+    return {"tasks": plan.tasks}
+
+def send_collaboration_workers(state: CollaborationState):
+    # A conditional-edge function can return a LIST of Send objects instead of one next-node name —
+    # this is how LangGraph does dynamic, data-driven fan-out (unlike Pattern 1's fixed routing table).
+    return [Send("specialist_worker", {"role": t.role, "task": t.task}) for t in state["tasks"]]
+
+def specialist_worker(state: CollaborationWorkerState):
+    role_prompts = {"research": "...", "security": "...", "business": "..."}
+    response = model.invoke(f"{role_prompts[state['role']]}\n\nComplete this task:\n{state['task']}")
+    return {"outputs": [f"{state['role'].upper()} AGENT:\n{response.content}"]}
+
+builder.add_conditional_edges("coordinator", send_collaboration_workers, ["specialist_worker"])
+builder.add_edge("specialist_worker", "aggregator")
+```
+
+This is the multi-agent analogue of Section 20.2's subgraph **Pattern B** (`Send`-based fan-out with
+an `operator.add`-reduced collection field) — same mechanism, applied to spawning parallel *agent
+roles* instead of parallel *research topics*. Expected model calls: `N + 2` (1 planner + N workers +
+1 aggregator).
+
+### 23.8 Pattern 8 — Coordinator-Guided Peer Network
+
+**Control style:** structurally identical to Supervisor (Pattern 3) — a coordinator loops, picking
+the next peer until `FINISH` — but peers **share one growing `notes` scratchpad** instead of each
+peer writing an isolated result tied to a specific instruction.
+
+```text
+Coordinator → Peer → Shared Notes → Coordinator → Next Peer → ... → Finish
+```
+
+```python
+class NetworkState(TypedDict):
+    task: str
+    notes: Annotated[list[str], operator.add]     # ALL peers read + append to this shared scratchpad
+    next_agent: str
+    final_answer: str
+    network_turns: int
+
+def network_research_peer(state: NetworkState):
+    previous = "\n\n".join(state.get("notes", []))
+    response = model.invoke(f"Task:\n{state['task']}\n\nPrevious peer notes:\n{previous}\n\nAdd useful research.")
+    return {"notes": ["RESEARCH:\n" + response.content]}
+
+def peer_coordinator(state: NetworkState):
+    network_turns = state.get("network_turns", 0) + 1
+    notes = "\n\n".join(state.get("notes", []))
+    if network_turns >= 6 and notes:                     # same safety-valve idea as Pattern 3
+        return {"next_agent": "FINISH", "network_turns": network_turns}
+    decision = peer_router.invoke(f"Choose the most useful next peer...\n{notes or 'No work completed yet.'}")
+    return {"next_agent": decision.next_agent, "network_turns": network_turns}
+```
+
+**Supervisor vs. Peer Network, the key contrast:** same loop *shape* (`coordinator → worker →
+coordinator → ... → finish`, with a turn-counter safety valve), but a different **state shape** —
+Supervisor accumulates `worker_outputs` (each tied to a specific delegated instruction), while the
+peer network accumulates one shared `notes` list every peer both reads and contributes to.
+
+### 23.9 Pattern comparison table
+
+| # | Pattern | Control mechanism | What makes it agentic (per 23.0) | Key LangGraph feature |
+|---|---|---|---|---|
+| 1 | Router | One decision, fixed lookup table | Router only; specialists are single-shot LLM calls | `add_conditional_edges` with a static dict |
+| 2 | Subagents / Agent-as-Tool | Coordinator's own tool-calling loop | The coordinator (decides which/how many subagent tools to call) | Wrapping other agents as `@tool` functions |
+| 3 | Supervisor | Central node re-decides after every worker | The supervisor (loops until FINISH) | Loop-back edges + manual turn counter |
+| 4 | Handoff | One decision transfers control outright | The triage node | `Command(goto=..., update=...)` |
+| 5 | Swarm | Agents decide for themselves when to transfer | Every agent (each carries its own handoff tool) | `langgraph_swarm.create_swarm` + checkpointer |
+| 6 | Hierarchical Supervisor | Two-level: pick team, then fixed team pipeline | The top supervisor only | Compiled `StateGraph` invoked from a parent node |
+| 7 | Parallel Collaboration (`Send`) | Dynamic, LLM-sized fan-out | The coordinator/planner | `Send` inside a conditional-edge function + `operator.add` |
+| 8 | Coordinator-Guided Peer Network | Same loop as Supervisor, shared notes | The coordinator | Loop-back edges + one shared `notes` list |
+
+**Picking a pattern:** one clear routing decision → **Router**. A main agent that should stay in
+control while consulting specialists → **Subagents**. Need central oversight across several
+open-ended steps → **Supervisor**. One agent should fully hand off and step away → **Handoff**.
+Want agents to negotiate control without a fixed boss → **Swarm**. Work naturally splits into
+departments, each with its own fixed sub-pipeline → **Hierarchical Supervisor**. Task naturally
+splits into independent, parallelizable subtasks of unknown count → **Parallel Collaboration
+(`Send`)**. Peers need to build on a shared scratchpad under light coordination → **Coordinator-
+Guided Peer Network**.
+
+---
+
+## 24. Quick-reference cheat sheet
 
 **Building any graph:**
 ```python
@@ -2361,3 +2750,12 @@ between the LLM node and the tools node in a loop until no more tool calls are p
 **Subgraphs:** same state schema → add the compiled subgraph directly with `add_node`. Different
 state schema or need N parallel copies → invoke the subgraph manually inside a worker node, fan out
 with `Send`, and use an `operator.add`-reduced field to collect parallel results.
+
+**Multi-agent pattern picker:** one clear decision → Router. Main agent stays in control, calls
+specialists as tools → Subagents. Central oversight over several open-ended steps → Supervisor. One
+agent fully hands off and steps away → Handoff (`Command(goto=...)`). Agents negotiate control with
+no fixed boss → Swarm (`langgraph_swarm`, needs a checkpointer). Work splits into departments each
+with their own sub-pipeline → Hierarchical Supervisor (graph invoked from a parent node). Unknown
+number of independent parallel subtasks → Parallel Collaboration (`Send` + `operator.add`).  Peers
+building on one shared scratchpad → Coordinator-Guided Peer Network. Role ≠ Agent: a node is only
+truly agentic once it has its own tools and decides for itself when to stop.
