@@ -40,3 +40,5 @@ langgraph==1.2.9
 langchain-tavily==0.2.18
 langgraph-swarm==0.1.0
 deepagent
+mcp[cli] 
+langchain[mcp]>=1.4.0
