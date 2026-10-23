@@ -42,3 +42,7 @@ langgraph-swarm==0.1.0
 deepagent
 mcp[cli] 
 langchain[mcp]>=1.4.0
+mcp[cli]>=2.0
+langchain[mcp]>=1.4.0
+httpx2
+uvicorn
