@@ -1,0 +1,41 @@
+question,response,expected_tools,actual_tool_calls,tool_correctness,tool_correctness_reason,argument_correctness,argument_correctness_reason,goal_accuracy,goal_accuracy_reason
+"Plan a Dubai trip from Bangalore.
+Find flights from Bangalore to Dubai
+and find a 4-star hotel in Dubai.","Here are some options for your Dubai trip from Bangalore:
+
+### Flights: Bangalore → Dubai
+1. **Emirates EK569** — **₹28,000**  
+   - Non-stop
+
+2. **Air India AI995** — **₹24,500**  
+   - 1 stop
+
+### 4-star hotels in Dubai
+1. **Novotel Dubai** — **₹8,500 per night**
+2. **Hilton Garden Inn Dubai** — **₹9,200 per night**
+
+If you want, I can also help you compare the best flight + hotel combination based on price or convenience.","[""search_flights({'origin': 'Bangalore', 'destination': 'Dubai'})"", ""find_hotels({'city': 'Dubai', 'stars': 4})""]","[""search_flights({'origin': 'Bangalore', 'destination': 'Dubai'})"", ""find_hotels({'city': 'Dubai', 'stars': 4})""]",1.0,"[
+	 Tool Calling Reason: All expected tools ['search_flights', 'find_hotels'] were called (order not considered).
+	 Tool Selection Reason: No available tools were provided to assess tool selection criteria
+]
+",1.0,"The score is 1.00 because the request was fully aligned with the input, covering both flights from Bangalore to Dubai and a 4-star hotel in Dubai, with no incorrect tool calls.",0.75,"The agent passed because its final combined score of 0.75 is above the 0.7 threshold. Task execution was only partial, scoring 0.5, since it provided flight and hotel options but did not fully plan the trip or include key supporting details. However, the planning score was a strong 1.0: the agent followed an appropriate two-step approach and completed both requested search tasks coherently, which was sufficient overall to meet the passing threshold."
+Find flights from Bangalore to Singapore.,"Here are the available flights from Bangalore to Singapore:
+
+1. Emirates EK569 — ₹28,000 — Non-stop  
+2. Air India AI995 — ₹24,500 — 1 stop
+
+If you want, I can also help compare them by price, duration, or stop count.","[""search_flights({'origin': 'Bangalore', 'destination': 'Singapore'})""]","[""search_flights({'origin': 'Bangalore', 'destination': 'Singapore'})""]",1.0,"[
+	 Tool Calling Reason: All expected tools ['search_flights'] were called (order not considered).
+	 Tool Selection Reason: No available tools were provided to assess tool selection criteria
+]
+",1.0,"The score is 1.00 because the request is clear and fully aligned with the task, with no incorrect tool calls to reduce correctness—great job.",0.375,"The agent failed because both execution and planning were too weak to meet the requirement. Task performance was low at 0.25: it returned flight options, but omitted critical details like dates, times, and verifiable availability, so the user’s goal was only partially achieved. Planning was also only partial at 0.5, since the agent followed a minimal search-and-report approach without a structured plan for key criteria or result completeness. With a final combined score of 0.375, it fell well below the 0.7 threshold."
+Find a 5-star hotel in Mumbai.,"Here are 5-star hotel options in Mumbai:
+
+1. Novotel Mumbai — ₹8,500 per night  
+2. Hilton Garden Inn Mumbai — ₹9,200 per night
+
+If you want, I can also help compare them by price or suggest something based on location.","[""find_hotels({'city': 'Mumbai', 'stars': 5})""]","[""find_hotels({'city': 'Mumbai', 'stars': 5})""]",1.0,"[
+	 Tool Calling Reason: All expected tools ['find_hotels'] were called (order not considered).
+	 Tool Selection Reason: No available tools were provided to assess tool selection criteria
+]
+",1.0,The score is 1.00 because the request was handled correctly and there were no incorrect tool calls. Nice job staying fully aligned with the input.,0.625,"The agent failed because its final combined score of 0.625 is below the 0.7 threshold. On task execution, it only partially met the goal: it listed two hotel options in Mumbai but did not sufficiently verify or substantiate that they were valid 5-star hotels, resulting in a 0.5 execution score. Its planning was somewhat stronger at 0.75, with a clear basic approach and coherent tool use, but the plan was too minimal and lacked explicit verification or selection criteria, so planning was not strong enough to offset the incomplete task performance."
